@@ -51,6 +51,7 @@ if #[cfg(target_os = "linux")] {
 const LEDGER_VID: u16 = 0x2c97;
 const LEDGER_USAGE_PAGE: u16 = 0xFFA0;
 const LEDGER_CHANNEL: u16 = 0x0101;
+const LEDGER_PACKET_SIZE: u8 = 64;
 // for Windows compatability, we prepend the buffer with a 0x00
 // so the actual buffer is 64 bytes
 const LEDGER_PACKET_WRITE_SIZE: u8 = 65;
@@ -145,21 +146,40 @@ impl TransportNativeHID {
         in_data.push((command_length & 0xFF) as u8);
         in_data.extend_from_slice(&apdu_command);
 
-        let mut buffer = vec![0u8; LEDGER_PACKET_WRITE_SIZE as usize];
-        // Windows platform requires 0x00 prefix and Linux/Mac tolerate this as well
-        buffer[0] = 0x00;
-        buffer[1] = ((channel >> 8) & 0xFF) as u8; // channel big endian
-        buffer[2] = (channel & 0xFF) as u8; // channel big endian
-        buffer[3] = 0x05u8;
+        let mut buffer;
+        if cfg!(target_os = "windows") {
+            buffer = vec![0u8; LEDGER_PACKET_WRITE_SIZE as usize];
+            // Windows platform requires 0x00 prefix and Linux/Mac tolerate this as well
+            buffer[0] = 0x00;
+            buffer[1] = ((channel >> 8) & 0xFF) as u8; // channel big endian
+            buffer[2] = (channel & 0xFF) as u8; // channel big endian
+            buffer[3] = 0x05u8;
+        } else {
+            buffer = vec![0u8; LEDGER_PACKET_SIZE as usize];
+            buffer[0] = ((channel >> 8) & 0xFF) as u8; // channel big endian
+            buffer[1] = (channel & 0xFF) as u8; // channel big endian
+            buffer[2] = 0x05u8;
+        };
 
-        for (sequence_idx, chunk) in in_data
-            .chunks((LEDGER_PACKET_WRITE_SIZE - 6) as usize)
-            .enumerate()
-        {
-            buffer[4] = ((sequence_idx >> 8) & 0xFF) as u8; // sequence_idx big endian
-            buffer[5] = (sequence_idx & 0xFF) as u8; // sequence_idx big endian
-            buffer[6..6 + chunk.len()].copy_from_slice(chunk);
-
+        let in_data_iter = if cfg!(target_os = "windows") {
+            in_data
+                .chunks((LEDGER_PACKET_WRITE_SIZE - 6) as usize)
+                .enumerate()
+        } else {
+            in_data
+                .chunks((LEDGER_PACKET_SIZE - 5) as usize)
+                .enumerate()
+        };
+        for (sequence_idx, chunk) in in_data_iter {
+            if cfg!(target_os = "windows") {
+                buffer[4] = ((sequence_idx >> 8) & 0xFF) as u8; // sequence_idx big endian
+                buffer[5] = (sequence_idx & 0xFF) as u8; // sequence_idx big endian
+                buffer[6..6 + chunk.len()].copy_from_slice(chunk);
+            } else {
+                buffer[3] = ((sequence_idx >> 8) & 0xFF) as u8; // sequence_idx big endian
+                buffer[4] = (sequence_idx & 0xFF) as u8; // sequence_idx big endian
+                buffer[5..5 + chunk.len()].copy_from_slice(chunk);
+            }
             info!("[{:3}] << {:}", buffer.len(), hex::encode(&buffer));
 
             let result = self.device.write(&buffer);
@@ -179,7 +199,11 @@ impl TransportNativeHID {
     }
 
     fn read_apdu(&self, channel: u16, apdu_answer: &mut Vec<u8>) -> Result<usize, LedgerHIDError> {
-        let mut buffer = vec![0u8; LEDGER_PACKET_READ_SIZE as usize];
+        let mut buffer = if cfg!(target_os = "windows") {
+            vec![0u8; LEDGER_PACKET_READ_SIZE as usize]
+        } else {
+            vec![0u8; LEDGER_PACKET_SIZE as usize]
+        };
         let mut sequence_idx = 0u16;
         let mut expected_apdu_len = 0usize;
 
