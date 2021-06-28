@@ -19,4 +19,4 @@ thiserror = "1.0.20"
 log = "0.4.11"
 hex = "0.4.2"
 serde = { version = "1.0", features = ["derive"] }
-ledger-apdu = { path = "../ledger-apdu", version = "0.7.0" }
+ledger-apdu = { path = "../ledger-apdu", version = "0.8.0" }

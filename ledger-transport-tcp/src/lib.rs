@@ -26,17 +26,17 @@ impl TransportTCP {
         log::debug!("successfully connected to server {}", &self.url);
 
         fn wrap_err(
-            raw_command: &Vec<u8>,
+            raw_command: &[u8],
             stream: &mut TcpStream,
         ) -> Result<APDUAnswer, std::io::Error> {
             // store length as 32bit big endian into array
             let send_length_bytes = (raw_command.len() as u32).to_be_bytes();
 
             // first send number of bytes
-            stream.write(&send_length_bytes[..])?;
+            stream.write_all(&send_length_bytes[..])?;
 
             // then send bytes
-            stream.write(&raw_command[..])?;
+            stream.write_all(&raw_command)?;
 
             let mut rcv_length_bytes = [0u8; 4];
 
